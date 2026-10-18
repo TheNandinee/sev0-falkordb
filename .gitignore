@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# personal notes, not part of the product
+YOU_READ_THIS.md
+SUBMISSION.md
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# build artifacts and zips
+*.zip
+dist/
+build/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# logs
+*.log

@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sev0 v2 · graph-native on-call agent</title>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+  :root { --bg:#0b0e14; --panel:#121722; --line:#232a38; --text:#e6e9ef; --muted:#8a93a6; --red:#ff5a5f; --amber:#e0a100; --green:#1f9d6b; --blue:#5b8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  header { display:flex; align-items:center; gap:14px; padding:10px 18px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .brand { font:800 22px ui-monospace, monospace; letter-spacing:2px; color:var(--red); }
+  .ver { font:700 11px ui-monospace, monospace; color:var(--bg); background:var(--red); padding:2px 6px; border-radius:4px; margin-left:6px; vertical-align:middle; }
+  .tag { color:var(--muted); }
+  #live { font-size:12px; }
+  #status { margin-left:auto; color:var(--muted); font-size:12px; }
+  main { display:grid; grid-template-columns: 1fr 480px; height: calc(100vh - 52px); }
+  #graphwrap { position:relative; border-right:1px solid var(--line); }
+  #graph { position:absolute; inset:0; }
+  #legend { position:absolute; left:12px; bottom:12px; background:rgba(18,23,34,.92); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12px; color:var(--muted); }
+  #legend span.dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin:0 4px 0 10px; vertical-align:middle; }
+  aside { overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .card h3 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+  button { background:#1b2230; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:7px 10px; cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--blue); }
+  button:disabled { opacity:.6; cursor:wait; }
+  button.primary { background:var(--red); border-color:var(--red); font-weight:700; width:100%; padding:10px; }
+  button.ghost { background:transparent; }
+  button.mini { padding:3px 9px; font-size:12px; }
+  button.go { background:var(--green); border-color:var(--green); }
+  input { background:#0a0d13; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:12px; width:170px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .muted { color:var(--muted); font-size:12px; }
+  .alert { font-size:12px; padding:2px 0; }
+  .step { border-left:2px solid var(--line); padding:4px 0 8px 10px; margin-left:4px; animation: fade .3s ease; }
+  @keyframes fade { from { opacity:0; transform:translateY(4px);} to { opacity:1; transform:none; } }
+  .badge { font:700 10px ui-monospace, monospace; text-transform:uppercase; padding:2px 6px; border-radius:4px; background:#26304a; }
+  .badge.investigator { background:#2d2a5e; } .badge.planner { background:#1f3b4d; }
+  .badge.verifier { background:#4a3a14; } .badge.scribe { background:#173d2c; } .badge.responder { background:#5a2a2a; }
+  .sum { color:#c9cfdb; font-size:12px; margin-top:2px; }
+  pre { background:#0a0d13; border:1px solid var(--line); border-radius:6px; padding:6px; font-size:11px; overflow:auto; white-space:pre-wrap; margin:6px 0 2px; }
+  details summary { cursor:pointer; color:var(--muted); font-size:12px; }
+  .pill { font-size:11px; padding:2px 7px; border-radius:20px; background:#26304a; margin-left:4px; }
+  .pill.sev { background:var(--red); } .pill.open { background:#5a2a2a; } .pill.resolved { background:#1d4733; }
+  .pill.investigating, .pill.proposed { background:#4a3a14; } .pill.mitigated, .pill.approved { background:#1f3b4d; } .pill.executed { background:#1d4733; }
+  .root { font-size:16px; margin-bottom:6px; }
+  .warn { color:var(--amber); font-size:12px; }
+  .err { color:var(--red); font-size:12px; }
+  .ok { color:var(--green); font-size:12px; }
+  code { font-size:12px; color:#ffb4b6; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td { border-top:1px solid var(--line); padding:4px 2px; vertical-align:top; }
+  .inc, .action { font-size:12px; padding:6px 0; border-top:1px solid var(--line); }
+  .live { color:var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">SEV0<span class="ver">v2</span></div>
+  <div class="tag">graph-native on-call agent · FalkorDB</div>
+  <div id="live"></div>
+  <button id="simtoggle" class="mini ghost">…</button>
+  <div id="status">connecting…</div>
+</header>
+<main>
+  <section id="graphwrap">
+    <div id="graph"></div>
+    <div id="legend">health <span class="dot" style="background:#1f9d6b"></span>ok <span class="dot" style="background:#e0a100"></span>degraded <span class="dot" style="background:#e5484d"></span>down · edge width = observed calls · click a node for blast radius</div>
+  </section>
+  <aside>
+    <div class="card">
+      <h3>1 · Break something</h3>
+      <div class="row">
+        <button data-s="pricing-deploy">Bad pricing deploy</button>
+        <button data-s="psp-outage">Payment provider outage</button>
+        <button data-s="redis-meltdown">Redis meltdown</button>
+        <button id="reset" class="ghost">Reset</button>
+      </div>
+      <div id="simnote" class="muted" style="margin-top:6px"></div>
+      <div id="alerts" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
+      <h3>2 · Page Sev0</h3>
+      <button id="go" class="primary">Investigate</button>
+      <div id="mode" class="muted" style="margin-top:6px"></div>
+    </div>
+    <div class="card" id="diagcard" hidden><h3>Diagnosis</h3><div id="diag"></div></div>
+    <div class="card" id="actcard" hidden>
+      <h3>3 · Remediate (approval-gated)</h3>
+      <div id="actions"></div>
+      <div id="actmsg" class="muted" style="margin-top:6px"></div>
+    </div>
+    <div class="card"><h3>Agent trace (live)</h3><div id="trace" class="muted">Nothing yet.</div></div>
+    <div class="card" id="blastcard" hidden><h3>Blast radius</h3><div id="blast"></div></div>
+    <div class="card">
+      <h3>RCA evals</h3>
+      <button id="runevals" class="mini">Run 100-fault eval</button>
+      <div id="evals" class="muted" style="margin-top:6px">Injects random faults into an isolated eval graph and scores naive vs v1 vs v2.</div>
+    </div>
+    <div class="card"><h3>Most load-bearing services</h3><div id="critical"></div></div>
+    <div class="card"><h3>Incident memory</h3><div id="incidents"></div></div>
+  </aside>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const HEALTH = { ok: '#1f9d6b', degraded: '#e0a100', down: '#e5484d' };
+const EDGE = '#39404f';
+const nodes = new vis.DataSet();
+const edges = new vis.DataSet();
+let network = null;
+let KEY = localStorage.getItem('sev0_key') || '';
+let LIVE = false;
+let HOT = new Set();
+let BLAST = null;
+let CURRENT_INCIDENT = null;
+
+async function api(path, method = 'GET', body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (KEY) headers['X-API-Key'] = KEY;
+  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (res.status === 401) {
+    KEY = prompt('This Sev0 instance needs an API key:') || '';
+    localStorage.setItem('sev0_key', KEY);
+    throw new Error('Unauthorized. API key saved; try again.');
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
+  if (!res.ok) {
+    const d = data && data.detail !== undefined ? data.detail : text;
+    throw new Error(typeof d === 'string' ? d : JSON.stringify(d));
+  }
+  return data;
+}
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const shapeFor = (k) => ({ database: 'database', cache: 'database', queue: 'hexagon', external: 'diamond', frontend: 'box', gateway: 'triangle', search: 'square' }[k] || 'dot');
+
+function nodeView(n) {
+  const bg = HEALTH[n.health] || '#666';
+  let border = '#0b0e14', bw = 2;
+  if (BLAST && BLAST.center === n.name) { border = '#ffffff'; bw = 6; }
+  else if (BLAST && BLAST.set.has(n.name)) { border = '#ff9f43'; bw = 5; }
+  return {
+    id: n.name, label: n.name, shape: shapeFor(n.kind), size: 10 + (4 - (n.tier || 3)) * 5, borderWidth: bw,
+    color: { background: bg, border, highlight: { background: bg, border: '#ffffff' } },
+    font: { color: '#e6e9ef', size: 13, face: 'ui-monospace, monospace' },
+    title: `${n.name} | team ${n.team || '-'} | ${n.health} | p99 ${n.p99_ms}ms | err ${n.error_rate}%`,
+  };
+}
+
+function edgeView(e) {
+  const id = `${e.source}>${e.target}`;
+  const hot = HOT.has(id);
+  const width = e.calls ? Math.min(1 + Math.log10(e.calls + 1), 5) : 1;
+  return { id, from: e.source, to: e.target, arrows: 'to', width: hot ? 5 : width,
+           color: { color: hot ? '#ff5a5f' : (e.calls ? '#4a5a7a' : EDGE) } };
+}
+
+async function loadGraph() {
+  const g = await api('/api/graph');
+  const nv = g.nodes.map(nodeView);
+  const ev = g.edges.map(edgeView);
+  if (!network) {
+    nodes.add(nv); edges.add(ev);
+    network = new vis.Network($('#graph'), { nodes, edges }, {
+      physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -70, springLength: 120 }, stabilization: { iterations: 250 } },
+      interaction: { hover: true },
+    });
+    network.on('click', (p) => { if (p.nodes.length) showBlast(p.nodes[0]); });
+  } else {
+    nodes.update(nv); edges.update(ev);
+  }
+}
+
+function clearOverlays() { HOT = new Set(); BLAST = null; }
+
+async function highlightPaths(paths) {
+  HOT = new Set();
+  for (const p of paths || []) for (let i = 0; i < p.length - 1; i++) HOT.add(`${p[i]}>${p[i + 1]}`);
+  await loadGraph();
+}
+
+async function showBlast(name) {
+  const b = await api(`/api/blast/${encodeURIComponent(name)}`);
+  BLAST = { center: name, set: new Set(b.impacted.map((i) => i.service)) };
+  await loadGraph();
+  $('#blastcard').hidden = false;
+  $('#blast').innerHTML = `<div>If <b>${esc(name)}</b> fails, <b>${b.impacted.length}</b> services break (${b.tier1} tier-1). Teams: ${b.teams.map(esc).join(', ') || '-'}</div>
+    <table>${b.impacted.map((i) => `<tr><td>${esc(i.service)}</td><td class="muted">${i.hops} hop(s)</td><td class="muted">tier ${esc(i.tier)}</td><td class="muted">${esc(i.team)}</td></tr>`).join('')}</table>`;
+}
+
+async function loadAlerts() {
+  const a = await api('/api/alerts');
+  $('#alerts').innerHTML = a.alerts.length
+    ? a.alerts.map((x) => `<div class="alert">🔥 <b>${esc(x.service)}</b> · ${esc(x.metric)} = ${esc(x.value)}</div>`).join('')
+    : '<div class="muted">All quiet.</div>';
+}
+
+async function loadCritical() {
+  const c = await api('/api/critical');
+  $('#critical').innerHTML = `<div class="muted">${esc(c.algorithm)} over DEPENDS_ON</div><table>${c.services.map((s) => `<tr><td>${esc(s.service)}</td><td class="muted">${s.score}</td></tr>`).join('')}</table>`;
+}
+
+async function loadIncidents() {
+  const list = await api('/api/incidents');
+  $('#incidents').innerHTML = list.length ? list.map((i) => `<div class="inc"><b>${esc(i.id)}</b><span class="pill ${esc(i.status)}">${esc(i.status)}</span> ${esc(i.title)} <span class="muted">→ ${esc(i.root_cause || '?')}</span>
+    ${(i.status === 'open' || i.status === 'mitigated') ? ` <button class="mini" data-resolve="${esc(i.id)}">resolve</button>` : ''}</div>`).join('') : '<div class="muted">No incidents yet.</div>';
+  document.querySelectorAll('[data-resolve]').forEach((b) => {
+    b.onclick = async () => { await api(`/api/incidents/${encodeURIComponent(b.dataset.resolve)}/resolve`, 'POST'); await refresh(); };
+  });
+}
+
+async function loadSim() {
+  const s = await api('/api/simulator');
+  LIVE = s.running;
+  const t = s.telemetry || {};
+  const faults = Object.keys(s.faults || {});
+  $('#live').innerHTML = s.running
+    ? `<span class="live">● live telemetry</span> <span class="muted">${t.spans_per_s ?? 0} spans/s${t.baseline_ready ? '' : ' · learning baseline…'}${faults.length ? ' · faults: ' + faults.map(esc).join(', ') : ''}</span>`
+    : '<span class="muted">○ scripted mode</span>';
+  $('#simtoggle').textContent = s.running ? 'Stop telemetry' : 'Start telemetry';
+}
+
+function actionView(a) {
+  const approvers = (a.approvers || []).filter(Boolean);
+  return `<div class="action"><b>${esc(a.type)}</b> → <code>${esc(a.target)}</code><span class="pill ${esc(a.status)}">${esc(a.status)}</span><span class="pill">risk ${esc(a.risk)}</span>
+    <div class="muted">${esc(a.reason)}</div>
+    <div class="muted">approvals ${approvers.length}/${esc(a.required)}: ${approvers.map((h) => '@' + esc(h)).join(', ') || 'none'}</div>
+    ${a.status === 'proposed' ? `<div class="row" style="margin-top:4px"><input id="appr-${esc(a.id)}" placeholder="approver handle, e.g. neel"/><button class="mini" data-approve="${esc(a.id)}">approve</button></div>` : ''}
+    ${a.status === 'approved' ? `<button class="mini go" style="margin-top:4px" data-exec="${esc(a.id)}">execute</button>` : ''}</div>`;
+}
+
+async function loadActions() {
+  if (!CURRENT_INCIDENT) return;
+  const list = await api(`/api/incidents/${encodeURIComponent(CURRENT_INCIDENT)}/actions`);
+  $('#actcard').hidden = false;
+  $('#actions').innerHTML = list.map(actionView).join('') || '<div class="muted">No actions.</div>';
+  document.querySelectorAll('[data-approve]').forEach((b) => {
+    b.onclick = async () => {
+      const input = document.getElementById('appr-' + b.dataset.approve);
+      const handle = (input ? input.value : '').trim().replace(/^@/, '');
+      if (!handle) return;
+      try { const r = await api(`/api/actions/${encodeURIComponent(b.dataset.approve)}/approve`, 'POST', { handle }); $('#actmsg').innerHTML = `<span class="ok">@${esc(handle)} approved · ${esc(r.approvals)}/${esc(r.required)} · ${esc(r.status)}</span>`; }
+      catch (e) { $('#actmsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+      await loadActions();
+    };
+  });
+  document.querySelectorAll('[data-exec]').forEach((b) => {
+    b.onclick = async () => {
+      try { const r = await api(`/api/actions/${encodeURIComponent(b.dataset.exec)}/execute`, 'POST'); $('#actmsg').innerHTML = `<span class="ok">${esc(r.effect)}</span>`; }
+      catch (e) { $('#actmsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+      await loadActions(); await refresh();
+    };
+  });
+}
+
+function stepView(s) {
+  const cy = (s.cypher || []).map((q) => `<pre>${esc(q.cypher)}</pre><div class="muted">${q.rows} rows · ${q.ms} ms</div>`).join('');
+  return `<div class="step"><div><span class="badge ${esc(s.agent)}">${esc(s.agent)}</span> <b>${esc(s.tool)}</b> <span class="muted">${esc(JSON.stringify(s.args))}</span></div>
+    <div class="sum">${esc(s.summary)}</div>${cy ? `<details><summary>Cypher (${s.cypher.length})</summary>${cy}</details>` : ''}</div>`;
+}
+
+function renderDiagnosis(r) {
+  const d = r.diagnosis;
+  const dep = d.suspect_deploy;
+  const cf = r.counterfactual;
+  $('#diag').innerHTML = `
+    <div class="root">Root cause: <b>${esc(d.root_cause_service)}</b><span class="pill">${Math.round(d.confidence * 100)}% confidence</span><span class="pill sev">${esc(r.severity)}</span></div>
+    <p>${esc(d.summary)}</p>
+    ${d.verifier_note ? `<p class="warn">${esc(d.verifier_note)}</p>` : ''}
+    ${cf ? `<p><b>What-if:</b> fixing ${esc(cf.service)} clears ${cf.would_clear.length}/${cf.would_clear.length + cf.remaining.length} alerts${cf.remaining.length ? ` · unexplained: ${cf.remaining.map(esc).join(', ')}` : ''}</p>` : ''}
+    ${dep ? `<p>Suspect deploy: <b>${esc(dep.version)}</b> by ${esc(dep.author)}, ${esc(dep.minutes_ago)} min ago (${esc(dep.summary)})</p>` : ''}
+    <p><b>Fix:</b> ${esc(d.suggested_fix)}</p>
+    <p><b>Graph evidence</b></p>
+    <div>${(d.paths || []).map((p) => `<div><code>${p.map(esc).join(' → ')}</code></div>`).join('')}</div>
+    <p><b>Blast radius:</b> ${r.blast.impacted.length} services depend on it, ${r.blast.tier1} tier-1</p>
+    <p><b>Page:</b> ${(d.page || []).map((h) => '@' + esc(h)).join(', ')} in ${esc(d.channel)}</p>
+    <details><summary>How candidates were ranked (${esc(r.model)})</summary><table>${r.ranked.map((c) => `<tr><td>${esc(c.service)}</td><td>${c.score}</td><td class="muted">${c.evidence.map(esc).join('; ')}</td></tr>`).join('')}</table></details>
+    <details open><summary>Status update (scribe, ${esc(r.comms.by)})</summary><pre>${esc(r.comms.slack_update)}</pre></details>
+    <details><summary>Postmortem draft</summary><pre>${esc(r.comms.postmortem)}</pre></details>`;
+  $('#diagcard').hidden = false;
+}
+
+function streamInvestigation() {
+  return new Promise((resolve) => {
+    const url = '/api/investigate/stream' + (KEY ? `?api_key=${encodeURIComponent(KEY)}` : '');
+    const es = new EventSource(url);
+    es.addEventListener('step', (ev) => { $('#trace').insertAdjacentHTML('beforeend', stepView(JSON.parse(ev.data))); });
+    es.addEventListener('result', (ev) => { es.close(); resolve(JSON.parse(ev.data)); });
+    es.addEventListener('failure', (ev) => { es.close(); resolve(JSON.parse(ev.data)); });
+    es.onerror = () => { es.close(); resolve({ error: 'Stream failed (rate limited, unauthorized, or server error). Check the server logs.' }); };
+  });
+}
+
+async function refresh() {
+  await Promise.all([loadGraph(), loadAlerts(), loadIncidents()]);
+}
+
+document.querySelectorAll('[data-s]').forEach((b) => {
+  b.onclick = async () => {
+    try {
+      const r = await api(`/api/simulate/${b.dataset.s}`, 'POST');
+      $('#simnote').textContent = r.note || `Scripted outage: ${r.label}`;
+    } catch (e) { $('#simnote').textContent = e.message; }
+    clearOverlays(); $('#diagcard').hidden = true; await refresh();
+  };
+});
+$('#reset').onclick = async () => {
+  const r = await api('/api/reset', 'POST');
+  $('#simnote').textContent = r.note || 'Reset.';
+  clearOverlays(); $('#diagcard').hidden = true; await refresh();
+};
+$('#simtoggle').onclick = async () => { await api(LIVE ? '/api/simulator/stop' : '/api/simulator/start', 'POST'); await loadSim(); };
+
+$('#go').onclick = async () => {
+  const btn = $('#go');
+  btn.disabled = true; btn.textContent = 'Walking the graph…';
+  $('#trace').innerHTML = ''; $('#diagcard').hidden = true; $('#actmsg').textContent = '';
+  try {
+    const r = await streamInvestigation();
+    if (r.error) { $('#trace').insertAdjacentHTML('beforeend', `<div class="err">${esc(r.error)}</div>`); return; }
+    $('#mode').innerHTML = `mode <b>${esc(r.mode)}</b> · ${esc(r.incident_id)} · ${esc(r.duration_ms)} ms${r.note ? '<br>' + esc(r.note) : ''}`;
+    CURRENT_INCIDENT = r.incident_id;
+    renderDiagnosis(r);
+    await highlightPaths(r.diagnosis.paths);
+    await loadActions();
+    await loadIncidents();
+  } catch (e) {
+    $('#trace').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Investigate';
+  }
+};
+
+$('#runevals').onclick = async () => {
+  const btn = $('#runevals');
+  btn.disabled = true; btn.textContent = 'Injecting 100 faults…';
+  try {
+    const r = await api('/api/evals/run?n=100', 'POST');
+    const row = (name, m) => `<tr><td>${name}</td><td>${Math.round(m.top1 * 100)}%</td><td>${Math.round(m.top3 * 100)}%</td></tr>`;
+    $('#evals').innerHTML = `<table><tr><td class="muted">method</td><td class="muted">top-1</td><td class="muted">top-3</td></tr>
+      ${row('naive (highest error rate)', r.naive)}${row('v1 heuristic', r.v1)}${row('v2 graph-causal', r.v2)}</table>
+      <div class="muted">${r.n} faults · seed ${r.seed} · ${Math.round(r.silent_root * 100)}% silent roots · ${Math.round(r.noise * 100)}% noise · v2 p50 ${r.latency_ms.v2.p50} ms, p95 ${r.latency_ms.v2.p95} ms</div>`;
+  } catch (e) {
+    $('#evals').innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Run 100-fault eval';
+  }
+};
+
+setInterval(async () => {
+  try {
+    await loadSim();
+    if (!LIVE) return;
+    await refresh();
+    const typing = document.activeElement && document.activeElement.tagName === 'INPUT';
+    if (CURRENT_INCIDENT && !typing) await loadActions();
+  } catch (_) {}
+}, 3000);
+
+(async () => {
+  try {
+    const h = await api('/api/health');
+    $('#status').textContent = `v${h.version} · FalkorDB ${h.falkordb ? '✓' : '✗'} · ${h.graph} · ${h.llm === 'groq' ? 'Groq ' + h.model : 'planner mode'}${h.auth ? ' · auth on' : ''}`;
+    await loadSim();
+    await refresh();
+    await loadCritical();
+  } catch (e) {
+    $('#status').textContent = 'backend not reachable: ' + e.message;
+  }
+})();
+</script>
+</body>
+</html>

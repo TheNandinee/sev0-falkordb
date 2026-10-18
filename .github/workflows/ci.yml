@@ -1,0 +1,33 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      falkordb:
+        image: falkordb/falkordb:latest
+        ports:
+          - 6379:6379
+    env:
+      FALKORDB_HOST: localhost
+      SIMULATOR: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Wait for FalkorDB
+        run: |
+          python - <<'EOF'
+          import time
+          from app.db import ping
+          for _ in range(60):
+              try:
+                  ping(); print("FalkorDB up"); break
+              except Exception:
+                  time.sleep(1)
+          else:
+              raise SystemExit("FalkorDB did not start")
+          EOF
+      - run: pytest -q
